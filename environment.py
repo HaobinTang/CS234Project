@@ -100,7 +100,7 @@ class Env:
                 seq_no: current sequence number
                 seq_idx: current job index in the job sequence 
         Return:
-                new_job: a new job from Job class with parameters from job sequences
+                new_job: a new job from Job class with parameters obtained from job sequences
                             - resource
                             - duration
                             - job id as current length of job record
@@ -113,51 +113,67 @@ class Env:
         return new_job
 
     def observe(self):
+        """
+        Get the current state, from the updated storing parameters after taking a action through model.
+        Returns:
+                state: a representation of state including three parts
+                    - current work
+                        1. how many jobs left in the machine considering all the running job (assigned)
+                        2. current resource available
+                    - new jobs in job slots (duration, resources)
+                    - backlog indicator (current size of job_backlog)
+                 
+        """
 
-            state = np.zeros(self.pa.time_horizon * (self.pa.num_res + 1) +  # current work
-                                    self.pa.num_nw * (self.pa.num_res + 1) +        # new work
-                                    1,                                              # backlog indicator
-                                    dtype=tf.float32)
+        state = np.zeros(self.pa.time_horizon * (self.pa.num_res + 1) +         # current work
+                                self.pa.num_nw * (self.pa.num_res + 1) +        # new work
+                                1,                                              # backlog indicator
+                                dtype=tf.float32)
 
-            cr_pt = 0
+        pt = 0
 
-            # current work reward, after each time step, how many jobs left in the machine
-            job_allocated = np.ones(self.pa.time_horizon) * len(self.machine.running_job)
-            for j in self.machine.running_job:
-                job_allocated[j.finish_time - self.curr_time: ] -= 1
+        # current work reward, after each time step, how many jobs left in the machine
+        job_allocated = np.ones(self.pa.time_horizon) * len(self.machine.running_job)
+        for j in self.machine.running_job:
+            job_allocated[j.finish_time - self.curr_time: ] -= 1
 
-            compact_repr[cr_pt: cr_pt + self.pa.time_horizon] = job_allocated
-            cr_pt += self.pa.time_horizon
+        state[pt: pt + self.pa.time_horizon] = job_allocated
+        cr_pt += self.pa.time_horizon
 
-            # current work available slots
-            for i in range(self.pa.num_res):
-                compact_repr[cr_pt: cr_pt + self.pa.time_horizon] = self.machine.avbl_slot[:, i]
-                cr_pt += self.pa.time_horizon
+        # current work available slots
+        for i in range(self.pa.num_res):
+            state[pt: pt + self.pa.time_horizon] = self.machine.avbl_slot[:, i]
+            pt += self.pa.time_horizon
 
-            # new work duration and size
-            for i in range(self.pa.num_nw):
+        # new jobs in slots (duration and size)
+        for i in range(self.pa.num_nw):
+            if self.job_slot.slot[i] is None:
+                state[pt: pt + self.pa.num_res + 1] = 0
+                pt += self.pa.num_res + 1
+            else:
+                state[pt] = self.job_slot.slot[i].len
+                pt += 1
+                for j in range(self.pa.num_res):
+                    state[pt] = self.job_slot.slot[i].res_vec[j]
+                    pt += 1
 
-                if self.job_slot.slot[i] is None:
-                    compact_repr[cr_pt: cr_pt + self.pa.num_res + 1] = 0
-                    cr_pt += self.pa.num_res + 1
-                else:
-                    compact_repr[cr_pt] = self.job_slot.slot[i].len
-                    cr_pt += 1
+        # backlog queue indicator
+        state[pt] = self.job_backlog.curr_size
+        pt += 1
 
-                    for j in range(self.pa.num_res):
-                        compact_repr[cr_pt] = self.job_slot.slot[i].res_vec[j]
-                        cr_pt += 1
+        assert pt == len(state)  # fill up the compact representation vector
 
-            # backlog queue
-            compact_repr[cr_pt] = self.job_backlog.curr_size
-            cr_pt += 1
-
-            assert cr_pt == len(compact_repr)  # fill up the compact representation vector
-
-            return compact_repr
+        return state
 
     def get_reward(self):
-
+        """
+        Get reward for the state after taking an action
+        Return:
+                reward: penalty(time used to run the job) + penalty for job slow down from holding in jobslots and inbacklog
+                        - penalty (time accumulating) for each job (actually this term will be sum up to 1.0 for all jobs)
+                        - penalty for holding jobs in job slots
+                        - penalty for holding a job in backlog
+        """
         reward = 0
         for j in self.machine.running_job:
             reward += self.pa.delay_penalty / float(j.len)
