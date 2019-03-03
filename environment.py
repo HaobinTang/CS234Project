@@ -172,14 +172,15 @@ class Env:
 
         return reward
 
-    def Move_on(self,done):
+    def Move_on(self, done):
         '''
-        State transition of time when there is no jobs to allocate
+        State transition of time (proceeding) when no job was allocated. Get new job from job sequence and put it into job slots or backlog
         Args:
                 done: whether the episode ends
         Return:
                 reward: the incremental slowdown reward by time proceeds
         '''
+        # Proceeds one time step
         self.curr_time += 1
         self.machine.time_proceed(self.curr_time)
         self.extra_info.time_proceed()
@@ -187,10 +188,10 @@ class Env:
         # add new jobs
         self.seq_idx += 1
 
-        if self.end == "no_new_job":  # end of new job sequence
+        if self.end == "no_new_job":  # Termination type 1: end of new job sequence
             if self.seq_idx >= self.pa.simu_len:
                 done = True
-        elif self.end == "all_done":  # everything has to be finished
+        elif self.end == "all_done":  # Termination type 2: everything has to be finished
             if self.seq_idx >= self.pa.simu_len and \
                len(self.machine.running_job) == 0 and \
                all(s is None for s in self.job_slot.slot) and \
@@ -198,6 +199,7 @@ class Env:
                 done = True
             elif self.curr_time > self.pa.episode_max_length:  # run too long, force termination
                 done = True
+                print("Run out of maximum allowed time!")
 
         if not done:
 
