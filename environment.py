@@ -138,7 +138,7 @@ class Env:
             job_allocated[j.finish_time - self.curr_time: ] -= 1
 
         state[pt: pt + self.pa.time_horizon] = job_allocated
-        cr_pt += self.pa.time_horizon
+        pt += self.pa.time_horizon
 
         # current work available slots
         for i in range(self.pa.num_res):
