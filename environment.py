@@ -43,8 +43,7 @@ class Env:
             self.nw_len_seqs, self.nw_size_seqs = \
                 self.generate_sequence_work(self.pa.simu_len * self.pa.num_ex)
             
-            # Parameter to indicate workload of the generated sequence: sum of (duration * requried resource for each job) 
-                                                                                / (# jobs) / (# available resources)
+            # Parameter to indicate workload of the generated sequence: sum of (duration * requried resource for each job) / (# jobs) / (# available resources)
             self.workload = np.zeros(self.pa.num_res) 
             for i in xrange(self.pa.num_res):
                 self.workload[i] = \
@@ -73,6 +72,15 @@ class Env:
         self.extra_info = ExtraInfo(pa)
 
     def generate_sequence_work(self, simu_len):
+        """
+        Generate job sequences under stochastic distribution as job_distribution assumed
+        Args:
+                simu_len: length of the sequence of jobs
+        Return:
+                nw_len_seq: job duration sequence tensor
+                nw_size_seq: job resource requirement sequence tensor
+                
+        """
 
         nw_len_seq = np.zeros(simu_len, dtype=int)
         nw_size_seq = np.zeros((simu_len, self.pa.num_res), dtype=int)
@@ -86,6 +94,18 @@ class Env:
         return nw_len_seq, nw_size_seq
 
     def get_new_job_from_seq(self, seq_no, seq_idx):
+        """
+        Get a new job from the job sequences given the current sequence number and current index
+        Args:
+                seq_no: current sequence number
+                seq_idx: current job index in the job sequence 
+        Return:
+                new_job: a new job from Job class with parameters from job sequences
+                            - resource
+                            - duration
+                            - job id as current length of job record
+                            - arrival time
+        """
         new_job = Job(res_vec=self.nw_size_seqs[seq_no, seq_idx, :],
                       job_len=self.nw_len_seqs[seq_no, seq_idx],
                       job_id=len(self.job_record.record),
