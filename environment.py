@@ -1,22 +1,35 @@
 import numpy as np
 import math
 import matplotlib.pyplot as plt
-import theano
 
-import parameters
+
+import config
 
 
 class Env:
+    """
+    Abstract Class for implementing environment of simulator
+    """
     def __init__(self, pa, nw_len_seqs=None, nw_size_seqs=None,
-                 seed=42, render=False, repre='image', end='no_new_job'):
-
+                 seed=42, end='no_new_job'):
+        """
+        Initialize Environment Class
+        Args:
+                pa: hyperparameters from configure.py
+                nw_len_seqs: a sequence of duration of all jobs
+                nw_size_seqs: a sequence of resources requirement of all jobs
+                seed: seed to fix generated sequence
+                end: two types of termination - "no_new_job" means all jobs have been assigned. "all_done" means all jobs have been finished.
+                
+        """
+        # load hyperparameters and termination condition
         self.pa = pa
-        self.render = render
-        self.repre = repre  # image or compact representation
-        self.end = end  # termination type, 'no_new_job' or 'all_done'
-
+        self.end = end
+        
+        # load the stochastic distribution of jobs
         self.nw_dist = pa.dist.bi_model_dist
-
+        
+        # Initial parameter to record current time
         self.curr_time = 0
 
         # set up random seed
@@ -24,14 +37,16 @@ class Env:
             np.random.seed(314159)
         else:
             np.random.seed(seed)
-
+            
         if nw_len_seqs is None or nw_size_seqs is None:
-            # generate new work
+            # generate job sequences: 1. duration sequences; 2 resource requirement sequences
             self.nw_len_seqs, self.nw_size_seqs = \
                 self.generate_sequence_work(self.pa.simu_len * self.pa.num_ex)
-
-            self.workload = np.zeros(pa.num_res)
-            for i in xrange(pa.num_res):
+            
+            # Parameter to indicate workload of the generated sequence: sum of (duration * requried resource for each job) 
+                                                                                / (# jobs) / (# available resources)
+            self.workload = np.zeros(self.pa.num_res) 
+            for i in xrange(self.pa.num_res):
                 self.workload[i] = \
                     np.sum(self.nw_size_seqs[:, i] * self.nw_len_seqs) / \
                     float(pa.res_slot) / \
@@ -44,11 +59,13 @@ class Env:
         else:
             self.nw_len_seqs = nw_len_seqs
             self.nw_size_seqs = nw_size_seqs
+        
+        # Index for which example sequence
+        self.seq_no = 0
+        # Index to record which new job to be schedule next in job sequence
+        self.seq_idx = 0  
 
-        self.seq_no = 0  # which example sequence
-        self.seq_idx = 0  # index in that sequence
-
-        # initialize system
+        # initialize simulator
         self.machine = Machine(pa)
         self.job_slot = JobSlot(pa)
         self.job_backlog = JobBacklog(pa)
@@ -76,47 +93,11 @@ class Env:
         return new_job
 
     def observe(self):
-        if self.repre == 'image':
 
-            backlog_width = int(math.ceil(self.pa.backlog_size / float(self.pa.time_horizon)))
-
-            image_repr = np.zeros((self.pa.network_input_height, self.pa.network_input_width))
-
-            ir_pt = 0
-
-            for i in xrange(self.pa.num_res):
-
-                image_repr[:, ir_pt: ir_pt + self.pa.res_slot] = self.machine.canvas[i, :, :]
-                ir_pt += self.pa.res_slot
-
-                for j in xrange(self.pa.num_nw):
-
-                    if self.job_slot.slot[j] is not None:  # fill in a block of work
-                        image_repr[: self.job_slot.slot[j].len, ir_pt: ir_pt + self.job_slot.slot[j].res_vec[i]] = 1
-
-                    ir_pt += self.pa.max_job_size
-
-            image_repr[: self.job_backlog.curr_size / backlog_width,
-                       ir_pt: ir_pt + backlog_width] = 1
-            if self.job_backlog.curr_size % backlog_width > 0:
-                image_repr[self.job_backlog.curr_size / backlog_width,
-                           ir_pt: ir_pt + self.job_backlog.curr_size % backlog_width] = 1
-            ir_pt += backlog_width
-
-            image_repr[:, ir_pt: ir_pt + 1] = self.extra_info.time_since_last_new_job / \
-                                              float(self.extra_info.max_tracking_time_since_last_job)
-            ir_pt += 1
-
-            assert ir_pt == image_repr.shape[1]
-
-            return image_repr
-
-        elif self.repre == 'compact':
-
-            compact_repr = np.zeros(self.pa.time_horizon * (self.pa.num_res + 1) +  # current work
+            state = np.zeros(self.pa.time_horizon * (self.pa.num_res + 1) +  # current work
                                     self.pa.num_nw * (self.pa.num_res + 1) +        # new work
                                     1,                                              # backlog indicator
-                                    dtype=theano.config.floatX)
+                                    dtype=tf.float32)
 
             cr_pt = 0
 
@@ -154,60 +135,6 @@ class Env:
             assert cr_pt == len(compact_repr)  # fill up the compact representation vector
 
             return compact_repr
-
-    def plot_state(self):
-        plt.figure("screen", figsize=(20, 5))
-
-        skip_row = 0
-
-        for i in xrange(self.pa.num_res):
-
-            plt.subplot(self.pa.num_res,
-                        1 + self.pa.num_nw + 1,  # first +1 for current work, last +1 for backlog queue
-                        i * (self.pa.num_nw + 1) + skip_row + 1)  # plot the backlog at the end, +1 to avoid 0
-
-            plt.imshow(self.machine.canvas[i, :, :], interpolation='nearest', vmax=1)
-
-            for j in xrange(self.pa.num_nw):
-
-                job_slot = np.zeros((self.pa.time_horizon, self.pa.max_job_size))
-                if self.job_slot.slot[j] is not None:  # fill in a block of work
-                    job_slot[: self.job_slot.slot[j].len, :self.job_slot.slot[j].res_vec[i]] = 1
-
-                plt.subplot(self.pa.num_res,
-                            1 + self.pa.num_nw + 1,  # first +1 for current work, last +1 for backlog queue
-                            1 + i * (self.pa.num_nw + 1) + j + skip_row + 1)  # plot the backlog at the end, +1 to avoid 0
-
-                plt.imshow(job_slot, interpolation='nearest', vmax=1)
-
-                if j == self.pa.num_nw - 1:
-                    skip_row += 1
-
-        skip_row -= 1
-        backlog_width = int(math.ceil(self.pa.backlog_size / float(self.pa.time_horizon)))
-        backlog = np.zeros((self.pa.time_horizon, backlog_width))
-
-        backlog[: self.job_backlog.curr_size / backlog_width, : backlog_width] = 1
-        backlog[self.job_backlog.curr_size / backlog_width, : self.job_backlog.curr_size % backlog_width] = 1
-
-        plt.subplot(self.pa.num_res,
-                    1 + self.pa.num_nw + 1,  # first +1 for current work, last +1 for backlog queue
-                    self.pa.num_nw + 1 + 1)
-
-        plt.imshow(backlog, interpolation='nearest', vmax=1)
-
-        plt.subplot(self.pa.num_res,
-                    1 + self.pa.num_nw + 1,  # first +1 for current work, last +1 for backlog queue
-                    self.pa.num_res * (self.pa.num_nw + 1) + skip_row + 1)  # plot the backlog at the end, +1 to avoid 0
-
-        extra_info = np.ones((self.pa.time_horizon, 1)) * \
-                     self.extra_info.time_since_last_new_job / \
-                     float(self.extra_info.max_tracking_time_since_last_job)
-
-        plt.imshow(extra_info, interpolation='nearest', vmax=1)
-
-        plt.show()     # manual
-        # plt.pause(0.01)  # automatic
 
     def get_reward(self):
 
@@ -368,13 +295,6 @@ class Machine:
 
         self.running_job = []
 
-        # colormap for graphical representation
-        self.colormap = np.arange(1 / float(pa.job_num_cap), 1, 1 / float(pa.job_num_cap))
-        np.random.shuffle(self.colormap)
-
-        # graphical representation
-        self.canvas = np.zeros((pa.num_res, pa.time_horizon, pa.res_slot))
-
     def allocate_job(self, job, curr_time):
 
         allocated = False
@@ -393,26 +313,6 @@ class Machine:
 
                 self.running_job.append(job)
 
-                # update graphical representation
-
-                used_color = np.unique(self.canvas[:])
-                # WARNING: there should be enough colors in the color map
-                for color in self.colormap:
-                    if color not in used_color:
-                        new_color = color
-                        break
-
-                assert job.start_time != -1
-                assert job.finish_time != -1
-                assert job.finish_time > job.start_time
-                canvas_start_time = job.start_time - curr_time
-                canvas_end_time = job.finish_time - curr_time
-
-                for res in xrange(self.num_res):
-                    for i in range(canvas_start_time, canvas_end_time):
-                        avbl_slot = np.where(self.canvas[res, i, :] == 0)[0]
-                        self.canvas[res, i, avbl_slot[: job.res_vec[res]]] = new_color
-
                 break
 
         return allocated
@@ -426,11 +326,6 @@ class Machine:
 
             if job.finish_time <= curr_time:
                 self.running_job.remove(job)
-
-        # update graphical representation
-
-        self.canvas[:, :-1, :] = self.canvas[:, 1:, :]
-        self.canvas[:, -1, :] = 0
 
 
 class ExtraInfo:
