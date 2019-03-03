@@ -172,7 +172,14 @@ class Env:
 
         return reward
 
-    def Move_on(self):
+    def Move_on(self,done):
+        '''
+        State transition of time when there is no jobs to allocate
+        Args:
+                done: whether the episode ends
+        Return:
+                reward: the incremental slowdown reward by time proceeds
+        '''
         self.curr_time += 1
         self.machine.time_proceed(self.curr_time)
         self.extra_info.time_proceed()
@@ -222,6 +229,13 @@ class Env:
         return reward
     
     def Allocate (self,a):
+        '''
+        State transition of allocation when there is jobs to allocate
+        Args:
+                a: action from the agent like PG_network, SJF
+        Return:
+                
+        '''
         self.job_record.record[self.job_slot.slot[a].id] = self.job_slot.slot[a]
         self.job_slot.slot[a] = None
 
@@ -252,9 +266,9 @@ class Env:
             else:
                 status = 'Allocate'
         if status == 'MoveOn':
-            reward= self.Move_on()
+            reward= self.Move_on(done)
         elif status == 'Allocate':
-            self.Allocate()
+            self.Allocate(a)
             
         ob = self.observe()
         info = self.job_record
@@ -264,8 +278,6 @@ class Env:
             if not repeat:
                 self.seq_no = (self.seq_no + 1) % self.pa.num_ex
             self.reset()
-        if self.render:
-            self.plot_state()
 
         return ob, reward, done, info
 
