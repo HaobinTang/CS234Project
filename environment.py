@@ -100,7 +100,7 @@ class Env:
                 seq_no: current sequence number
                 seq_idx: current job index in the job sequence 
         Return:
-                new_job: a new job from Job class with parameters obtained from job sequences
+                new_job: a new job from Job class with parameters from job sequences
                             - resource
                             - duration
                             - job id as current length of job record
@@ -113,67 +113,51 @@ class Env:
         return new_job
 
     def observe(self):
-        """
-        Get the current state, from the updated storing parameters after taking a action through model.
-        Returns:
-                state: a representation of state including three parts
-                    - current work
-                        1. how many jobs left in the machine considering all the running job (assigned)
-                        2. current resource available
-                    - new jobs in job slots (duration, resources)
-                    - backlog indicator (current size of job_backlog)
-                 
-        """
 
-        state = np.zeros(self.pa.time_horizon * (self.pa.num_res + 1) +         # current work
-                                self.pa.num_nw * (self.pa.num_res + 1) +        # new work
-                                1,                                              # backlog indicator
-                                dtype=tf.float32)
+            state = np.zeros(self.pa.time_horizon * (self.pa.num_res + 1) +  # current work
+                                    self.pa.num_nw * (self.pa.num_res + 1) +        # new work
+                                    1,                                              # backlog indicator
+                                    dtype=tf.float32)
 
-        pt = 0
+            cr_pt = 0
 
-        # current work reward, after each time step, how many jobs left in the machine
-        job_allocated = np.ones(self.pa.time_horizon) * len(self.machine.running_job)
-        for j in self.machine.running_job:
-            job_allocated[j.finish_time - self.curr_time: ] -= 1
+            # current work reward, after each time step, how many jobs left in the machine
+            job_allocated = np.ones(self.pa.time_horizon) * len(self.machine.running_job)
+            for j in self.machine.running_job:
+                job_allocated[j.finish_time - self.curr_time: ] -= 1
 
-        state[pt: pt + self.pa.time_horizon] = job_allocated
-        pt += self.pa.time_horizon
+            compact_repr[cr_pt: cr_pt + self.pa.time_horizon] = job_allocated
+            cr_pt += self.pa.time_horizon
 
-        # current work available slots
-        for i in range(self.pa.num_res):
-            state[pt: pt + self.pa.time_horizon] = self.machine.avbl_slot[:, i]
-            pt += self.pa.time_horizon
+            # current work available slots
+            for i in range(self.pa.num_res):
+                compact_repr[cr_pt: cr_pt + self.pa.time_horizon] = self.machine.avbl_slot[:, i]
+                cr_pt += self.pa.time_horizon
 
-        # new jobs in slots (duration and size)
-        for i in range(self.pa.num_nw):
-            if self.job_slot.slot[i] is None:
-                state[pt: pt + self.pa.num_res + 1] = 0
-                pt += self.pa.num_res + 1
-            else:
-                state[pt] = self.job_slot.slot[i].len
-                pt += 1
-                for j in range(self.pa.num_res):
-                    state[pt] = self.job_slot.slot[i].res_vec[j]
-                    pt += 1
+            # new work duration and size
+            for i in range(self.pa.num_nw):
 
-        # backlog queue indicator
-        state[pt] = self.job_backlog.curr_size
-        pt += 1
+                if self.job_slot.slot[i] is None:
+                    compact_repr[cr_pt: cr_pt + self.pa.num_res + 1] = 0
+                    cr_pt += self.pa.num_res + 1
+                else:
+                    compact_repr[cr_pt] = self.job_slot.slot[i].len
+                    cr_pt += 1
 
-        assert pt == len(state)  # fill up the compact representation vector
+                    for j in range(self.pa.num_res):
+                        compact_repr[cr_pt] = self.job_slot.slot[i].res_vec[j]
+                        cr_pt += 1
 
-        return state
+            # backlog queue
+            compact_repr[cr_pt] = self.job_backlog.curr_size
+            cr_pt += 1
+
+            assert cr_pt == len(compact_repr)  # fill up the compact representation vector
+
+            return compact_repr
 
     def get_reward(self):
-        """
-        Get reward for the state after taking an action
-        Return:
-                reward: penalty(time used to run the job) + penalty for job slow down from holding in jobslots and inbacklog
-                        - penalty (time accumulating) for each job (actually this term will be sum up to 1.0 for all jobs)
-                        - penalty for holding jobs in job slots
-                        - penalty for holding a job in backlog
-        """
+
         reward = 0
         for j in self.machine.running_job:
             reward += self.pa.delay_penalty / float(j.len)
@@ -188,6 +172,67 @@ class Env:
 
         return reward
 
+    def Move_on(self):
+        self.curr_time += 1
+        self.machine.time_proceed(self.curr_time)
+        self.extra_info.time_proceed()
+
+        # add new jobs
+        self.seq_idx += 1
+
+        if self.end == "no_new_job":  # end of new job sequence
+            if self.seq_idx >= self.pa.simu_len:
+                done = True
+        elif self.end == "all_done":  # everything has to be finished
+            if self.seq_idx >= self.pa.simu_len and \
+               len(self.machine.running_job) == 0 and \
+               all(s is None for s in self.job_slot.slot) and \
+               all(s is None for s in self.job_backlog.backlog):
+                done = True
+            elif self.curr_time > self.pa.episode_max_length:  # run too long, force termination
+                done = True
+
+        if not done:
+
+            if self.seq_idx < self.pa.simu_len:  # otherwise, end of new job sequence, i.e. no new jobs
+                new_job = self.get_new_job_from_seq(self.seq_no, self.seq_idx)
+
+                if new_job.len > 0:  # a new job comes
+
+                    to_backlog = True
+                    for i in xrange(self.pa.num_nw):
+                        if self.job_slot.slot[i] is None:  # put in new visible job slots
+                            self.job_slot.slot[i] = new_job
+                            self.job_record.record[new_job.id] = new_job
+                            to_backlog = False
+                            break
+
+                    if to_backlog:
+                        if self.job_backlog.curr_size < self.pa.backlog_size:
+                            self.job_backlog.backlog[self.job_backlog.curr_size] = new_job
+                            self.job_backlog.curr_size += 1
+                            self.job_record.record[new_job.id] = new_job
+                        else:  # abort, backlog full
+                            print("Backlog is full.")
+                            # exit(1)
+
+                    self.extra_info.new_job_comes()
+
+        reward = self.get_reward()
+        return reward
+    
+    def Allocate (self,a):
+        self.job_record.record[self.job_slot.slot[a].id] = self.job_slot.slot[a]
+        self.job_slot.slot[a] = None
+
+        # dequeue backlog
+        if self.job_backlog.curr_size > 0:
+            self.job_slot.slot[a] = self.job_backlog.backlog[0]  # if backlog empty, it will be 0
+            self.job_backlog.backlog[: -1] = self.job_backlog.backlog[1:]
+            self.job_backlog.backlog[-1] = None
+            self.job_backlog.curr_size -= 1
+         
+    
     def step(self, a, repeat=False):
 
         status = None
@@ -195,8 +240,8 @@ class Env:
         done = False
         reward = 0
         info = None
-
-        if a == self.pa.num_nw:  # explicit void action
+        # 
+        if a == self.pa.num_nw:  # explicit void action 
             status = 'MoveOn'
         elif self.job_slot.slot[a] is None:  # implicit void action
             status = 'MoveOn'
@@ -206,78 +251,19 @@ class Env:
                 status = 'MoveOn'
             else:
                 status = 'Allocate'
-
         if status == 'MoveOn':
-            self.curr_time += 1
-            self.machine.time_proceed(self.curr_time)
-            self.extra_info.time_proceed()
-
-            # add new jobs
-            self.seq_idx += 1
-
-            if self.end == "no_new_job":  # end of new job sequence
-                if self.seq_idx >= self.pa.simu_len:
-                    done = True
-            elif self.end == "all_done":  # everything has to be finished
-                if self.seq_idx >= self.pa.simu_len and \
-                   len(self.machine.running_job) == 0 and \
-                   all(s is None for s in self.job_slot.slot) and \
-                   all(s is None for s in self.job_backlog.backlog):
-                    done = True
-                elif self.curr_time > self.pa.episode_max_length:  # run too long, force termination
-                    done = True
-
-            if not done:
-
-                if self.seq_idx < self.pa.simu_len:  # otherwise, end of new job sequence, i.e. no new jobs
-                    new_job = self.get_new_job_from_seq(self.seq_no, self.seq_idx)
-
-                    if new_job.len > 0:  # a new job comes
-
-                        to_backlog = True
-                        for i in xrange(self.pa.num_nw):
-                            if self.job_slot.slot[i] is None:  # put in new visible job slots
-                                self.job_slot.slot[i] = new_job
-                                self.job_record.record[new_job.id] = new_job
-                                to_backlog = False
-                                break
-
-                        if to_backlog:
-                            if self.job_backlog.curr_size < self.pa.backlog_size:
-                                self.job_backlog.backlog[self.job_backlog.curr_size] = new_job
-                                self.job_backlog.curr_size += 1
-                                self.job_record.record[new_job.id] = new_job
-                            else:  # abort, backlog full
-                                print("Backlog is full.")
-                                # exit(1)
-
-                        self.extra_info.new_job_comes()
-
-            reward = self.get_reward()
-
+            reward= self.Move_on()
         elif status == 'Allocate':
-            self.job_record.record[self.job_slot.slot[a].id] = self.job_slot.slot[a]
-            self.job_slot.slot[a] = None
-
-            # dequeue backlog
-            if self.job_backlog.curr_size > 0:
-                self.job_slot.slot[a] = self.job_backlog.backlog[0]  # if backlog empty, it will be 0
-                self.job_backlog.backlog[: -1] = self.job_backlog.backlog[1:]
-                self.job_backlog.backlog[-1] = None
-                self.job_backlog.curr_size -= 1
-
+            self.Allocate()
+            
         ob = self.observe()
-
         info = self.job_record
-
+        
         if done:
             self.seq_idx = 0
-
             if not repeat:
                 self.seq_no = (self.seq_no + 1) % self.pa.num_ex
-
             self.reset()
-
         if self.render:
             self.plot_state()
 
