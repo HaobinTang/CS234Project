@@ -2,9 +2,7 @@ import numpy as np
 import math
 import matplotlib.pyplot as plt
 
-
 import Parameters
-
 
 class Env:
     """
@@ -172,11 +170,13 @@ class Env:
 
         return reward
 
-    def Move_on(self):
+    def Move_on(self, done):
         '''
-        State transition of time (proceeding) when no job was allocated. Get new job from job sequence and put it into job slots or backlog
+        1. Update state transition of time (proceeding) when no job was allocated.
+        2. Get new job from job sequence and put it into job slots or backlog
+        3. Update reword after allocation of jobs
         Args:
-                
+                done: whether the episode ends
         Return:
                 reward: the incremental slowdown reward by time proceeds
         '''
@@ -190,32 +190,32 @@ class Env:
 
         if self.end == "no_new_job":  # Termination type 1: end of new job sequence
             if self.seq_idx >= self.pa.simu_len:
-                self.done = True
+                done = True
         elif self.end == "all_done":  # Termination type 2: everything has to be finished
             if self.seq_idx >= self.pa.simu_len and \
                len(self.machine.running_job) == 0 and \
                all(s is None for s in self.job_slot.slot) and \
                all(s is None for s in self.job_backlog.backlog):
-                self.done = True
+                done = True
             elif self.curr_time > self.pa.episode_max_length:  # run too long, force termination
-                self.done = True
+                done = True
                 print("Run out of maximum allowed time!")
 
-        if not self.done:
-
+        if not done: # not terminate
             if self.seq_idx < self.pa.simu_len:  # otherwise, end of new job sequence, i.e. no new jobs
+                # Get new job from job sequence
                 new_job = self.get_new_job_from_seq(self.seq_no, self.seq_idx)
-
-                if new_job.len > 0:  # a new job comes
-
+                # if a new job comes
+                if new_job.len > 0:
                     to_backlog = True
+                    # Try to put in new visible job slots
                     for i in xrange(self.pa.num_nw):
-                        if self.job_slot.slot[i] is None:  # put in new visible job slots
+                        if self.job_slot.slot[i] is None:
                             self.job_slot.slot[i] = new_job
                             self.job_record.record[new_job.id] = new_job
                             to_backlog = False
                             break
-
+                    # Put to backlog if job slots are full
                     if to_backlog:
                         if self.job_backlog.curr_size < self.pa.backlog_size:
                             self.job_backlog.backlog[self.job_backlog.curr_size] = new_job
@@ -224,24 +224,23 @@ class Env:
                         else:  # abort, backlog full
                             print("Backlog is full.")
                             # exit(1)
-
+                    #update new job extra information
                     self.extra_info.new_job_comes()
-
+        # Update reward
         reward = self.get_reward()
         return reward
 
-    def Allocate (self,a):
+    def Allocate (self, a):
         '''
-        State transition of allocation when there is jobs to allocate
+        Update parameters for new state after taking a selected action
         Args:
                 a: action from the agent like PG_network, SJF
-        Return:
-
         '''
+        # Store the allocated job in job_record with its number in record as id
         self.job_record.record[self.job_slot.slot[a].id] = self.job_slot.slot[a]
         self.job_slot.slot[a] = None
 
-        # dequeue backlog
+        # dequeue backlog to fill the job slot just allocated
         if self.job_backlog.curr_size > 0:
             self.job_slot.slot[a] = self.job_backlog.backlog[0]  # if backlog empty, it will be 0
             self.job_backlog.backlog[: -1] = self.job_backlog.backlog[1:]
@@ -250,10 +249,19 @@ class Env:
 
 
     def step(self, a, repeat=False):
-
+        '''
+        Update parameters for new state after taking a selected action
+        Args:
+                a: action from the agent like PG_network, SJF
+        Returns:
+                ob:
+                reward:
+                done:
+                info
+        '''
         status = None
 
-        self.done = False
+        done = False
         reward = 0
         info = None
         #
@@ -268,20 +276,20 @@ class Env:
             else:
                 status = 'Allocate'
         if status == 'MoveOn':
-            reward= self.Move_on()
+            reward= self.Move_on(done)
         elif status == 'Allocate':
             self.Allocate(a)
 
         ob = self.observe()
         info = self.job_record
 
-        if self.done:
+        if done:
             self.seq_idx = 0
             if not repeat:
                 self.seq_no = (self.seq_no + 1) % self.pa.num_ex
             self.reset()
 
-        return ob, reward, self.done, info
+        return ob, reward, done, info
 
     def reset(self):
         self.seq_idx = 0
@@ -332,15 +340,7 @@ class Machine:
         self.running_job = []
 
     def allocate_job(self, job, curr_time):
-        '''
-        Determine whether a job chosen by the agent can be allocated in the resources. If allocated, updated the information of job
-        slot and running jobs and return "allocated==True". If fail to allocate, return "allocated==False".
-        Args:
-                job: the job chosen by the agent and ready to allocate
-                curr_time: Current time of the state
-        Return:
-                allocated: the condition whether the job is successfully allocated
-        '''
+
         allocated = False
 
         for t in xrange(0, self.time_horizon - job.len):
@@ -362,15 +362,7 @@ class Machine:
         return allocated
 
     def time_proceed(self, curr_time):
-        '''
-        When time proceeds, resource is doing 1 timestep of the job. Move the remain part of the job to the front and release 
-        the end of the resource to the maximum number of available resource slots. Also, compare the current time with the 
-        finish time of a job, if the current time is equal and bigger than the job, it is done and can be removed from the running jobs.
-        Args:
-                curr_time: Current time of the state
-        Return:
-              
-        '''
+
         self.avbl_slot[:-1, :] = self.avbl_slot[1:, :]
         self.avbl_slot[-1, :] = self.res_slot
 
