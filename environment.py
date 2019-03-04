@@ -1,6 +1,3 @@
-
-
-
 import numpy as np
 import math
 import matplotlib.pyplot as plt
@@ -175,11 +172,11 @@ class Env:
 
         return reward
 
-    def Move_on(self, done):
+    def Move_on(self):
         '''
         State transition of time (proceeding) when no job was allocated. Get new job from job sequence and put it into job slots or backlog
         Args:
-                done: whether the episode ends
+                
         Return:
                 reward: the incremental slowdown reward by time proceeds
         '''
@@ -193,18 +190,18 @@ class Env:
 
         if self.end == "no_new_job":  # Termination type 1: end of new job sequence
             if self.seq_idx >= self.pa.simu_len:
-                done = True
+                self.done = True
         elif self.end == "all_done":  # Termination type 2: everything has to be finished
             if self.seq_idx >= self.pa.simu_len and \
                len(self.machine.running_job) == 0 and \
                all(s is None for s in self.job_slot.slot) and \
                all(s is None for s in self.job_backlog.backlog):
-                done = True
+                self.done = True
             elif self.curr_time > self.pa.episode_max_length:  # run too long, force termination
-                done = True
+                self.done = True
                 print("Run out of maximum allowed time!")
 
-        if not done:
+        if not self.done:
 
             if self.seq_idx < self.pa.simu_len:  # otherwise, end of new job sequence, i.e. no new jobs
                 new_job = self.get_new_job_from_seq(self.seq_no, self.seq_idx)
@@ -256,7 +253,7 @@ class Env:
 
         status = None
 
-        done = False
+        self.done = False
         reward = 0
         info = None
         #
@@ -271,20 +268,20 @@ class Env:
             else:
                 status = 'Allocate'
         if status == 'MoveOn':
-            reward= self.Move_on(done)
+            reward= self.Move_on()
         elif status == 'Allocate':
             self.Allocate(a)
 
         ob = self.observe()
         info = self.job_record
 
-        if done:
+        if self.done:
             self.seq_idx = 0
             if not repeat:
                 self.seq_no = (self.seq_no + 1) % self.pa.num_ex
             self.reset()
 
-        return ob, reward, done, info
+        return ob, reward, self.done, info
 
     def reset(self):
         self.seq_idx = 0
