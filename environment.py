@@ -1,3 +1,6 @@
+
+
+
 import numpy as np
 import math
 import matplotlib.pyplot as plt
@@ -435,14 +438,3 @@ def test_backlog():
 
 if __name__ == '__main__':
     test_backlog()
-    
-    
-         '''
-        When time proceeds, resource is doing 1 timestep of the job. Move the remain part of the job to the front and release 
-        the end of the resource to the maximum number of available resource slots. Also, compare the current time with the 
-        finish time of a job, if the current time is equal and bigger than the job, it is done and can be removed from the running jobs.
-        Args:
-                curr_time: Current time of the state
-        Return:
-              
-        '''
