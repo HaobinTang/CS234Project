@@ -3,7 +3,7 @@ import math
 import matplotlib.pyplot as plt
 
 
-import config
+import Parameters
 
 
 class Env:
@@ -20,15 +20,15 @@ class Env:
                 nw_size_seqs: a sequence of resources requirement of all jobs
                 seed: seed to fix generated sequence
                 end: two types of termination - "no_new_job" means all jobs have been assigned. "all_done" means all jobs have been finished.
-                
+
         """
         # load hyperparameters and termination condition
         self.pa = pa
         self.end = end
-        
+
         # load the stochastic distribution of jobs
         self.nw_dist = pa.dist.bi_model_dist
-        
+
         # Initial parameter to record current time
         self.curr_time = 0
 
@@ -37,14 +37,14 @@ class Env:
             np.random.seed(314159)
         else:
             np.random.seed(seed)
-            
+
         if nw_len_seqs is None or nw_size_seqs is None:
             # generate job sequences: 1. duration sequences; 2 resource requirement sequences
             self.nw_len_seqs, self.nw_size_seqs = \
                 self.generate_sequence_work(self.pa.simu_len * self.pa.num_ex)
-            
+
             # Parameter to indicate workload of the generated sequence: sum of (duration * requried resource for each job) / (# jobs) / (# available resources)
-            self.workload = np.zeros(self.pa.num_res) 
+            self.workload = np.zeros(self.pa.num_res)
             for i in xrange(self.pa.num_res):
                 self.workload[i] = \
                     np.sum(self.nw_size_seqs[:, i] * self.nw_len_seqs) / \
@@ -58,11 +58,11 @@ class Env:
         else:
             self.nw_len_seqs = nw_len_seqs
             self.nw_size_seqs = nw_size_seqs
-        
+
         # Index for which example sequence
         self.seq_no = 0
         # Index to record which new job to be schedule next in job sequence
-        self.seq_idx = 0  
+        self.seq_idx = 0
 
         # initialize simulator
         self.machine = Machine(pa)
@@ -79,7 +79,7 @@ class Env:
         Return:
                 nw_len_seq: job duration sequence tensor
                 nw_size_seq: job resource requirement sequence tensor
-                
+
         """
 
         nw_len_seq = np.zeros(simu_len, dtype=int)
@@ -98,7 +98,7 @@ class Env:
         Get a new job from the job sequences given the current sequence number and current index
         Args:
                 seq_no: current sequence number
-                seq_idx: current job index in the job sequence 
+                seq_idx: current job index in the job sequence
         Return:
                 new_job: a new job from Job class with parameters from job sequences
                             - resource
@@ -229,14 +229,14 @@ class Env:
 
         reward = self.get_reward()
         return reward
-    
+
     def Allocate (self,a):
         '''
         State transition of allocation when there is jobs to allocate
         Args:
                 a: action from the agent like PG_network, SJF
         Return:
-                
+
         '''
         self.job_record.record[self.job_slot.slot[a].id] = self.job_slot.slot[a]
         self.job_slot.slot[a] = None
@@ -247,8 +247,8 @@ class Env:
             self.job_backlog.backlog[: -1] = self.job_backlog.backlog[1:]
             self.job_backlog.backlog[-1] = None
             self.job_backlog.curr_size -= 1
-         
-    
+
+
     def step(self, a, repeat=False):
 
         status = None
@@ -256,8 +256,8 @@ class Env:
         done = False
         reward = 0
         info = None
-        # 
-        if a == self.pa.num_nw:  # explicit void action 
+        #
+        if a == self.pa.num_nw:  # explicit void action
             status = 'MoveOn'
         elif self.job_slot.slot[a] is None:  # implicit void action
             status = 'MoveOn'
@@ -271,10 +271,10 @@ class Env:
             reward= self.Move_on(done)
         elif status == 'Allocate':
             self.Allocate(a)
-            
+
         ob = self.observe()
         info = self.job_record
-        
+
         if done:
             self.seq_idx = 0
             if not repeat:
