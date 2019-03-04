@@ -1,8 +1,8 @@
 import numpy as np
 import math
-import matplotlib.pyplot as plt
+import tensorflow as tf
 
-import Parameters
+import parameters
 
 class Env:
     """
@@ -43,7 +43,7 @@ class Env:
 
             # Parameter to indicate workload of the generated sequence: sum of (duration * requried resource for each job) / (# jobs) / (# available resources)
             self.workload = np.zeros(self.pa.num_res)
-            for i in xrange(self.pa.num_res):
+            for i in range(self.pa.num_res):
                 self.workload[i] = \
                     np.sum(self.nw_size_seqs[:, i] * self.nw_len_seqs) / \
                     float(pa.res_slot) / \
@@ -115,44 +115,44 @@ class Env:
             state = np.zeros(self.pa.time_horizon * (self.pa.num_res + 1) +  # current work
                                     self.pa.num_nw * (self.pa.num_res + 1) +        # new work
                                     1,                                              # backlog indicator
-                                    dtype=tf.float32)
+                                    dtype = np.float32)
 
-            cr_pt = 0
+            pt = 0
 
             # current work reward, after each time step, how many jobs left in the machine
             job_allocated = np.ones(self.pa.time_horizon) * len(self.machine.running_job)
             for j in self.machine.running_job:
                 job_allocated[j.finish_time - self.curr_time: ] -= 1
 
-            compact_repr[cr_pt: cr_pt + self.pa.time_horizon] = job_allocated
-            cr_pt += self.pa.time_horizon
+            state[pt: pt + self.pa.time_horizon] = job_allocated
+            pt += self.pa.time_horizon
 
             # current work available slots
             for i in range(self.pa.num_res):
-                compact_repr[cr_pt: cr_pt + self.pa.time_horizon] = self.machine.avbl_slot[:, i]
-                cr_pt += self.pa.time_horizon
+                state[pt: pt + self.pa.time_horizon] = self.machine.avbl_slot[:, i]
+                pt += self.pa.time_horizon
 
             # new work duration and size
             for i in range(self.pa.num_nw):
 
                 if self.job_slot.slot[i] is None:
-                    compact_repr[cr_pt: cr_pt + self.pa.num_res + 1] = 0
-                    cr_pt += self.pa.num_res + 1
+                    state[pt: pt + self.pa.num_res + 1] = 0
+                    pt += self.pa.num_res + 1
                 else:
-                    compact_repr[cr_pt] = self.job_slot.slot[i].len
-                    cr_pt += 1
+                    state[pt] = self.job_slot.slot[i].len
+                    pt += 1
 
                     for j in range(self.pa.num_res):
-                        compact_repr[cr_pt] = self.job_slot.slot[i].res_vec[j]
-                        cr_pt += 1
+                        state[pt] = self.job_slot.slot[i].res_vec[j]
+                        pt += 1
 
             # backlog queue
-            compact_repr[cr_pt] = self.job_backlog.curr_size
-            cr_pt += 1
+            state[pt] = self.job_backlog.curr_size
+            pt += 1
 
-            assert cr_pt == len(compact_repr)  # fill up the compact representation vector
+            assert pt == len(state)  # fill up the compact representation vector
 
-            return compact_repr
+            return state
 
     def get_reward(self):
 
@@ -209,7 +209,7 @@ class Env:
                 if new_job.len > 0:
                     to_backlog = True
                     # Try to put in new visible job slots
-                    for i in xrange(self.pa.num_nw):
+                    for i in range(self.pa.num_nw):
                         if self.job_slot.slot[i] is None:
                             self.job_slot.slot[i] = new_job
                             self.job_record.record[new_job.id] = new_job
@@ -304,6 +304,9 @@ class Env:
 
 
 class Job:
+    """
+    Abstact class for job
+    """
     def __init__(self, res_vec, job_len, job_id, enter_time):
         self.id = job_id
         self.res_vec = res_vec
@@ -314,22 +317,34 @@ class Job:
 
 
 class JobSlot:
+    """
+    Abstact class for job slots
+    """
     def __init__(self, pa):
         self.slot = [None] * pa.num_nw
 
 
 class JobBacklog:
+    """
+    Abstact class for job backlog
+    """
     def __init__(self, pa):
         self.backlog = [None] * pa.backlog_size
         self.curr_size = 0
 
 
 class JobRecord:
+    """
+    Abstact class for job record
+    """
     def __init__(self):
         self.record = {}
 
 
 class Machine:
+    """
+    Abstact class for Machine
+    """
     def __init__(self, pa):
         self.num_res = pa.num_res
         self.time_horizon = pa.time_horizon
@@ -343,7 +358,7 @@ class Machine:
 
         allocated = False
 
-        for t in xrange(0, self.time_horizon - job.len):
+        for t in range(0, self.time_horizon - job.len):
 
             new_avbl_res = self.avbl_slot[t: t + job.len, :] - job.res_vec
 
@@ -398,7 +413,7 @@ def test_backlog():
     pa.new_job_rate = 1
     pa.compute_dependent_parameters()
 
-    env = Env(pa, render=False, repre='image')
+    env = Env(pa)
 
     env.step(5)
     env.step(5)
