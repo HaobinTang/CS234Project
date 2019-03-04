@@ -335,7 +335,7 @@ class JobBacklog:
 
 class JobRecord:
     """
-    Abstact class for job record
+    Abstact class for job record in a dictionary
     """
     def __init__(self):
         self.record = {}
@@ -355,7 +355,15 @@ class Machine:
         self.running_job = []
 
     def allocate_job(self, job, curr_time):
-
+        '''
+        Determine whether a job chosen by the agent can be allocated in the resources. If allocated, updated the information of job
+        slot and running jobs and return "allocated==True". If fail to allocate, return "allocated==False".
+        Args:
+                job: the job chosen by the agent and ready to allocate
+                curr_time: Current time of the state
+        Return:
+                allocated: the condition whether the job is successfully allocated
+        '''
         allocated = False
 
         for t in range(0, self.time_horizon - job.len):
@@ -377,7 +385,15 @@ class Machine:
         return allocated
 
     def time_proceed(self, curr_time):
+        '''
+        When time proceeds, resource is doing 1 timestep of the job. Move the remain part of the job to the front and release
+        the end of the resource to the maximum number of available resource slots. Also, compare the current time with the
+        finish time of a job, if the current time is equal and bigger than the job, it is done and can be removed from the running jobs.
+        Args:
+                curr_time: Current time of the state
+        Return:
 
+        '''
         self.avbl_slot[:-1, :] = self.avbl_slot[1:, :]
         self.avbl_slot[-1, :] = self.res_slot
 
@@ -388,6 +404,9 @@ class Machine:
 
 
 class ExtraInfo:
+    """
+    Abstact class for Extra Information
+    """
     def __init__(self, pa):
         self.time_since_last_new_job = 0
         self.max_tracking_time_since_last_job = pa.max_track_since_new
