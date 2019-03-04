@@ -433,49 +433,5 @@ def test_backlog():
     print ("- Backlog test passed -")
 
 
-def test_compact_speed():
-
-    pa = parameters.Parameters()
-    pa.simu_len = 50
-    pa.num_ex = 10
-    pa.new_job_rate = 0.3
-    pa.compute_dependent_parameters()
-
-    env = Env(pa, render=False, repre='compact')
-
-    import other_agents
-    import time
-
-    start_time = time.time()
-    for i in xrange(100000):
-        a = other_agents.get_sjf_action(env.machine, env.job_slot)
-        env.step(a)
-    end_time = time.time()
-    print ("- Elapsed time: ", end_time - start_time, "sec -")
-
-
-def test_image_speed():
-
-    pa = parameters.Parameters()
-    pa.simu_len = 50
-    pa.num_ex = 10
-    pa.new_job_rate = 0.3
-    pa.compute_dependent_parameters()
-
-    env = Env(pa, render=False, repre='image')
-
-    import other_agents
-    import time
-
-    start_time = time.time()
-    for i in xrange(100000):
-        a = other_agents.get_sjf_action(env.machine, env.job_slot)
-        env.step(a)
-    end_time = time.time()
-    print ("- Elapsed time: ", end_time - start_time, "sec -")
-
-
 if __name__ == '__main__':
     test_backlog()
-    test_compact_speed()
-    test_image_speed()
