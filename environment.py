@@ -282,7 +282,7 @@ class Env:
 
         ob = self.observe()
         info = self.job_record
-
+        # if done, reset sequence idex and move to next sequence
         if done:
             self.seq_idx = 0
             if not repeat:
