@@ -113,8 +113,8 @@ class Env:
     def observe(self):
 
             state = np.zeros(self.pa.time_horizon * (self.pa.num_res + 1) +  # current work
-                                    self.pa.num_nw * (self.pa.num_res + 1) +        # new work
-                                    1,                                              # backlog indicator
+                                    self.pa.num_nw * (self.pa.num_res + 1) + # new work
+                                    1,                                       # backlog indicator
                                     dtype = np.float32)
 
             pt = 0
@@ -280,7 +280,7 @@ class Env:
         elif status == 'Allocate':
             self.Allocate(a)
 
-        ob = self.observe()
+        state = self.observe()
         info = self.job_record
         # if done, reset sequence idex and move to next sequence
         if done:
@@ -289,7 +289,7 @@ class Env:
                 self.seq_no = (self.seq_no + 1) % self.pa.num_ex
             self.reset()
 
-        return ob, reward, done, info
+        return state, reward, done, info
 
     def reset(self):
         self.seq_idx = 0
@@ -430,7 +430,6 @@ def test_backlog():
     pa.simu_len = 50
     pa.num_ex = 10
     pa.new_job_rate = 1
-    pa.compute_dependent_parameters()
 
     env = Env(pa)
 
